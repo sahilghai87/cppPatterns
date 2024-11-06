@@ -1,0 +1,217 @@
+#include <cstdio>
+#include <cstdint>
+#include <iostream>
+#include <vector>
+#include <functional>
+
+class Base
+{
+  static uint32_t objcount;
+  const uint32_t objId = objcount++;
+public:
+  uint32_t GetObjID() const
+  {
+	return objId;
+  }
+};
+
+uint32_t Base::objcount;
+
+class Data : public Base
+{
+private:
+  std::vector<uint32_t> synaps;
+public:
+  Data() = default;
+  Data(std::initializer_list<uint32_t> l) : synaps(l)
+  {}
+  Data(std::vector<uint32_t> l) : synaps(l)
+  {}
+
+public:
+  virtual size_t GetSize()
+  {
+    return synaps.size();
+  }
+
+  virtual std::vector<uint32_t> GetData() const
+  {
+    return synaps;
+  }
+
+  virtual uint32_t GetSy(size_t i)
+  {
+    if (i < synaps.size())
+      return synaps.at(i);
+    return 0U;
+  }
+  
+  virtual void SetSy(uint32_t val, size_t idx)
+  {
+    if (idx < synaps.size())
+		synaps[idx] = val;
+  }
+  
+  virtual void SetSy(uint32_t val)
+  {
+	synaps.emplace_back(val);
+  }
+  
+  virtual void Print()
+  {
+    std::cout << "Synaps: " << GetObjID() << std::endl;
+    if (!synaps.empty())
+      std::cout << "[ ";
+    for (auto elem : synaps)
+		std::cout << "{" << elem << "}, ";
+    if (!synaps.empty())
+      std::cout << "] " << std::endl;
+  }
+};
+
+class DataMapper : public Data
+{
+using Base = Data;
+private:
+	std::vector<uint32_t> mutator;
+public:
+    DataMapper(std::initializer_list<uint32_t> l, std::initializer_list<uint32_t> n) : Data(l), mutator(n)
+    {}
+    DataMapper(std::vector<uint32_t> l, std::vector<uint32_t> n) : Data(l), mutator(n)
+    {}
+public:
+    virtual std::vector<uint32_t> GetData() const override
+    {
+        return mutator;
+    }
+
+	virtual size_t GetSize() override
+    {
+      return mutator.size();
+    }
+    
+	virtual uint32_t GetSy(size_t i) override
+    {
+    	if (i > mutator.size())
+        	return Base::GetSy(i);
+		return mutator.at(i);
+    }
+    
+    virtual void SetSy(uint32_t val) override
+    {
+      mutator.emplace_back(val);
+      Base::SetSy(val);
+    }
+    
+  	virtual void SetSy(uint32_t val, size_t idx) override
+    {
+    	if (idx < GetSize())
+			mutator[idx] = val;
+        else if (idx < Base::GetSize())
+        	Base::SetSy(val, idx);
+        else
+        {
+          Base::SetSy(val);
+          SetSy(val);
+        }
+    }
+    
+    virtual void Print() override
+  	{
+      std::cout << "Mutated: " << GetObjID() << std::endl;
+      if (Base::GetSize() != 0)
+        std::cout << "[ ";
+      for (size_t i = 0; i < Base::GetSize(); ++i)
+          std::cout << "{" << Base::GetSy(i) << " -> " << GetSy(i) << "}, ";
+      if (Base::GetSize() != 0)
+        std::cout << "] " << std::endl;
+  	}	
+};
+
+
+class Redirector : public DataMapper
+{
+private:
+    std::vector<uint32_t> refresh;
+    Data& imp;
+    DataMapper& mp;
+    bool switchIdx = false;
+
+public:
+    Redirector(Data &imap, DataMapper &map) : DataMapper(map.GetData(), imap.GetData()), imp(imap), mp(map)
+    {
+        for (size_t i = 0; i < map.GetSize(); ++i)
+        {
+            refresh.emplace_back(mp.GetSy(i) + imp.GetSy(i));
+        }
+    }
+public:
+    void SwitchIdx()
+    {
+        switchIdx = !switchIdx; 
+    }
+
+    virtual size_t GetSize() override
+    {
+        auto fnGetSize = std::mem_fn(&Data::GetSize);
+        if (switchIdx)
+            return fnGetSize(imp);
+        return fnGetSize(mp);
+    }
+
+    virtual uint32_t GetSy(size_t i) override
+    {
+        auto fnGetSy = std::mem_fn(&Data::GetSy);
+        if (switchIdx)
+            return fnGetSy(imp, i);
+        return fnGetSy(mp, i);
+    }
+
+    virtual void SetSy(uint32_t val) override
+    {
+        auto fnSetSy = std::mem_fn<void(uint32_t)>(&Data::SetSy);
+        if (switchIdx)
+            fnSetSy(imp, val);
+        else
+            fnSetSy(mp, val);
+    }
+
+    virtual void SetSy(uint32_t val, size_t idx) override
+    {
+        auto fnSetSy = std::mem_fn<void(uint32_t, size_t)>(&Data::SetSy);
+        if (switchIdx)
+            fnSetSy(imp, val, idx);
+        else
+            fnSetSy(mp, val, idx);
+    }
+
+    virtual void Print() override
+    {
+        auto fnPrint = std::mem_fn(&Data::Print);
+        if (switchIdx)
+            fnPrint(imp);
+        else
+            fnPrint(mp);
+    }
+};
+
+int main()
+{
+  Data baseData({2, 4, 6, 8, 10});
+  baseData.Print();
+  
+  DataMapper mutated({9, 2, 13, 88, 10}, {3, 2, 1, 0, 20});
+  mutated.Print();
+  mutated.SetSy(15, 4);
+  mutated.SetSy(72);
+  mutated.Print();
+
+  Redirector redir(baseData, mutated);
+  redir.SetSy(90);
+  redir.Print();
+
+  redir.SwitchIdx();
+  
+  redir.SetSy(188);
+  redir.Print();
+}
